@@ -3,9 +3,24 @@ jQuery(function ($) {
 
 	const $status = $('#movisoft-import-status');
 	const $button = $('#movisoft-start-import');
+	const $checkAll = $('#movisoft-check-all');
+
+	if ($checkAll.length) {
+		$checkAll.on('change', function () {
+			$('.movisoft-file-check:not(:disabled)').prop('checked', $(this).is(':checked'));
+		});
+	}
 
 	function log(message) {
 		$status.append($('<p>').text(message));
+	}
+
+	function getSelectedIds() {
+		const ids = [];
+		$('.movisoft-file-check:checked').each(function () {
+			ids.push($(this).val());
+		});
+		return ids;
 	}
 
 	function processBatch(offset, total) {
@@ -37,13 +52,21 @@ jQuery(function ($) {
 	}
 
 	$button.on('click', function () {
+		const selectedIds = getSelectedIds();
 		$status.empty();
+
+		if (!selectedIds.length) {
+			log('Selecciona al menos un archivo no publicado.');
+			return;
+		}
+
 		$button.prop('disabled', true);
 		log('Iniciando importación...');
 
 		$.post(movisoftDAP.ajaxUrl, {
 			action: 'movisoft_dap_start_import',
-			nonce: movisoftDAP.nonce
+			nonce: movisoftDAP.nonce,
+			selected_ids: selectedIds
 		}).done(function (response) {
 			if (!response.success) {
 				log('Error: ' + (response.data.message || 'No se pudo iniciar.'));
@@ -58,7 +81,7 @@ jQuery(function ($) {
 				return;
 			}
 
-			log('Total de archivos detectados: ' + total);
+			log('Total de archivos seleccionados: ' + total);
 			processBatch(0, total);
 		}).fail(function () {
 			log('Error AJAX al iniciar.');

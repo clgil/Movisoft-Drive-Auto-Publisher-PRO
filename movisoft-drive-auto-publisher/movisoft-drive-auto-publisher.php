@@ -20,6 +20,7 @@ define( 'MOVISOFT_DAP_URL', plugin_dir_url( __FILE__ ) );
 
 require_once MOVISOFT_DAP_PATH . 'includes/logger.php';
 require_once MOVISOFT_DAP_PATH . 'includes/drive-api.php';
+require_once MOVISOFT_DAP_PATH . 'includes/drive-auth.php';
 require_once MOVISOFT_DAP_PATH . 'includes/exeio-api.php';
 require_once MOVISOFT_DAP_PATH . 'includes/openrouter-api.php';
 require_once MOVISOFT_DAP_PATH . 'includes/duplicate-checker.php';
