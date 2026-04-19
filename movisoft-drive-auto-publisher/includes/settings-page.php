@@ -27,37 +27,13 @@ add_action( 'admin_init', 'movisoft_dap_register_settings' );
  * @param array $input Input.
  */
 function movisoft_dap_sanitize_settings( array $input ): array {
-	$current = get_option( 'movisoft_dap_settings', array() );
-	$output  = is_array( $current ) ? $current : array();
+	$output = array();
 
-	$output['google_folder_id'] = sanitize_text_field( $input['google_folder_id'] ?? '' );
-	$output['folder_brand']     = sanitize_text_field( $input['folder_brand'] ?? '' );
-
-	if ( ! empty( $_FILES['movisoft_google_credentials_json']['tmp_name'] ) ) {
-		$file_name = sanitize_file_name( wp_unslash( $_FILES['movisoft_google_credentials_json']['name'] ?? '' ) );
-		$tmp_path  = sanitize_text_field( wp_unslash( $_FILES['movisoft_google_credentials_json']['tmp_name'] ?? '' ) );
-
-		if ( 'json' !== strtolower( pathinfo( $file_name, PATHINFO_EXTENSION ) ) ) {
-			add_settings_error( 'movisoft_dap_settings', 'movisoft_json_invalid_ext', 'El archivo de credenciales debe ser JSON.' );
-		} else {
-			$parsed = movisoft_dap_parse_google_credentials_file( $tmp_path );
-			if ( empty( $parsed['success'] ) ) {
-				add_settings_error( 'movisoft_dap_settings', 'movisoft_json_invalid', sanitize_text_field( $parsed['error'] ?? 'JSON inválido.' ) );
-			} else {
-				$saved = movisoft_dap_store_google_credentials_json( $tmp_path );
-				if ( empty( $saved['success'] ) ) {
-					add_settings_error( 'movisoft_dap_settings', 'movisoft_json_save_error', sanitize_text_field( $saved['error'] ?? 'No se pudo guardar JSON.' ) );
-				} else {
-					$output['google_credentials_file'] = sanitize_text_field( $saved['path'] );
-					$output['google_client_id']        = sanitize_text_field( $parsed['data']['client_id'] );
-					$output['google_client_secret']    = sanitize_text_field( $parsed['data']['client_secret'] );
-					$output['google_auth_uri']         = esc_url_raw( $parsed['data']['auth_uri'] );
-					$output['google_token_uri']        = esc_url_raw( $parsed['data']['token_uri'] );
-					add_settings_error( 'movisoft_dap_settings', 'movisoft_json_ok', 'JSON de credenciales cargado correctamente.', 'updated' );
-				}
-			}
-		}
-	}
+	$output['google_client_id']     = sanitize_text_field( $input['google_client_id'] ?? '' );
+	$output['google_client_secret'] = sanitize_text_field( $input['google_client_secret'] ?? '' );
+	$output['google_refresh_token'] = sanitize_text_field( $input['google_refresh_token'] ?? '' );
+	$output['google_folder_id']     = sanitize_text_field( $input['google_folder_id'] ?? '' );
+	$output['folder_brand']         = sanitize_text_field( $input['folder_brand'] ?? '' );
 
 	$output['exeio_api_key']  = sanitize_text_field( $input['exeio_api_key'] ?? '' );
 	$output['exeio_endpoint'] = esc_url_raw( $input['exeio_endpoint'] ?? 'https://exe.io/api' );
@@ -66,8 +42,8 @@ function movisoft_dap_sanitize_settings( array $input ): array {
 	$output['openrouter_api_key'] = sanitize_text_field( $input['openrouter_api_key'] ?? '' );
 	$output['openrouter_prompt']  = wp_kses_post( $input['openrouter_prompt'] ?? '' );
 
-	$output['default_category']  = absint( $input['default_category'] ?? 0 );
-	$output['default_tags']      = sanitize_text_field( $input['default_tags'] ?? '' );
+	$output['default_category'] = absint( $input['default_category'] ?? 0 );
+	$output['default_tags']     = sanitize_text_field( $input['default_tags'] ?? '' );
 	$output['featured_image_id'] = absint( $input['featured_image_id'] ?? 0 );
 
 	$output['publish_mode'] = in_array( $input['publish_mode'] ?? 'publish', array( 'publish', 'future' ), true ) ? $input['publish_mode'] : 'publish';
@@ -85,14 +61,12 @@ function movisoft_dap_render_dashboard_page(): void {
 	}
 
 	$options = get_option( 'movisoft_dap_settings', array() );
-	$state   = ! empty( $options['google_refresh_token'] ) ? 'Conectado' : 'No conectado';
 	?>
 	<div class="wrap movisoft-dap-wrap">
 		<h1><?php echo esc_html__( 'Movisoft Drive Auto Publisher PRO', 'movisoft-drive-auto-publisher' ); ?></h1>
 		<div class="movisoft-grid">
 			<div class="movisoft-card">
 				<h2><?php echo esc_html__( 'Estado', 'movisoft-drive-auto-publisher' ); ?></h2>
-				<p><strong><?php echo esc_html__( 'Google OAuth:', 'movisoft-drive-auto-publisher' ); ?></strong> <?php echo esc_html( $state ); ?></p>
 				<p><strong><?php echo esc_html__( 'Carpeta Drive ID:', 'movisoft-drive-auto-publisher' ); ?></strong> <?php echo esc_html( $options['google_folder_id'] ?? '-' ); ?></p>
 				<p><strong><?php echo esc_html__( 'IA:', 'movisoft-drive-auto-publisher' ); ?></strong> <?php echo ! empty( $options['openrouter_enabled'] ) ? esc_html__( 'Activa', 'movisoft-drive-auto-publisher' ) : esc_html__( 'Desactivada', 'movisoft-drive-auto-publisher' ); ?></p>
 				<p><strong><?php echo esc_html__( 'Cron:', 'movisoft-drive-auto-publisher' ); ?></strong> <?php echo ! empty( $options['cron_enabled'] ) ? esc_html__( 'Activo (6h)', 'movisoft-drive-auto-publisher' ) : esc_html__( 'Inactivo', 'movisoft-drive-auto-publisher' ); ?></p>
@@ -110,27 +84,26 @@ function movisoft_dap_render_settings_page(): void {
 		wp_die( esc_html__( 'No tienes permisos suficientes.', 'movisoft-drive-auto-publisher' ) );
 	}
 
-	$options        = get_option( 'movisoft_dap_settings', array() );
-	$connect_url    = wp_nonce_url( admin_url( 'admin-post.php?action=movisoft_dap_google_oauth_start' ), 'movisoft_dap_google_oauth_start' );
-	$is_connected   = ! empty( $options['google_refresh_token'] );
-	$credentials_ok = ! empty( $options['google_client_id'] ) && ! empty( $options['google_client_secret'] );
+	$options = get_option( 'movisoft_dap_settings', array() );
 	?>
 	<div class="wrap movisoft-dap-wrap">
 		<h1><?php echo esc_html__( 'Configuración API', 'movisoft-drive-auto-publisher' ); ?></h1>
-		<?php settings_errors( 'movisoft_dap_settings' ); ?>
-		<form method="post" action="options.php" enctype="multipart/form-data">
+		<form method="post" action="options.php">
 			<?php settings_fields( 'movisoft_dap_settings_group' ); ?>
+			<?php wp_nonce_field( 'movisoft_dap_settings_nonce', 'movisoft_dap_settings_nonce_field' ); ?>
 			<table class="form-table" role="presentation">
-				<tr><th colspan="2"><h2>Google Drive OAuth2 (JSON obligatorio)</h2></th></tr>
+				<tr><th colspan="2"><h2>Google Drive API v3</h2></th></tr>
 				<tr>
-					<th><label for="movisoft_google_credentials_json">Credenciales JSON</label></th>
-					<td>
-						<input type="file" id="movisoft_google_credentials_json" name="movisoft_google_credentials_json" accept="application/json,.json" />
-						<p class="description">Sube el JSON OAuth 2.0 Client ID descargado desde Google Cloud Console.</p>
-						<?php if ( ! empty( $options['google_credentials_file'] ) ) : ?>
-							<p><strong>Archivo guardado:</strong> <?php echo esc_html( $options['google_credentials_file'] ); ?></p>
-						<?php endif; ?>
-					</td>
+					<th><label for="google_client_id">Client ID</label></th>
+					<td><input type="text" id="google_client_id" name="movisoft_dap_settings[google_client_id]" value="<?php echo esc_attr( $options['google_client_id'] ?? '' ); ?>" class="regular-text" /></td>
+				</tr>
+				<tr>
+					<th><label for="google_client_secret">Client Secret</label></th>
+					<td><input type="password" id="google_client_secret" name="movisoft_dap_settings[google_client_secret]" value="<?php echo esc_attr( $options['google_client_secret'] ?? '' ); ?>" class="regular-text" /></td>
+				</tr>
+				<tr>
+					<th><label for="google_refresh_token">Refresh Token</label></th>
+					<td><input type="password" id="google_refresh_token" name="movisoft_dap_settings[google_refresh_token]" value="<?php echo esc_attr( $options['google_refresh_token'] ?? '' ); ?>" class="regular-text" /></td>
 				</tr>
 				<tr>
 					<th><label for="google_folder_id">Folder ID</label></th>
@@ -139,17 +112,6 @@ function movisoft_dap_render_settings_page(): void {
 				<tr>
 					<th><label for="folder_brand">Marca de carpeta</label></th>
 					<td><input type="text" id="folder_brand" name="movisoft_dap_settings[folder_brand]" value="<?php echo esc_attr( $options['folder_brand'] ?? '' ); ?>" class="regular-text" /></td>
-				</tr>
-				<tr>
-					<th>OAuth</th>
-					<td>
-						<?php if ( $credentials_ok ) : ?>
-							<a href="<?php echo esc_url( $connect_url ); ?>" class="button button-secondary">Conectar con Google</a>
-							<p><strong>Estado:</strong> <?php echo $is_connected ? esc_html__( 'Conectado', 'movisoft-drive-auto-publisher' ) : esc_html__( 'No conectado', 'movisoft-drive-auto-publisher' ); ?></p>
-						<?php else : ?>
-							<p>Carga el JSON para habilitar la conexión OAuth.</p>
-						<?php endif; ?>
-					</td>
 				</tr>
 				<tr>
 					<th>Test conexión</th>
@@ -219,89 +181,38 @@ function movisoft_dap_render_settings_page(): void {
 }
 
 /**
- * Inicia flujo OAuth redirigiendo a Google.
+ * Importador manual.
  */
-function movisoft_dap_handle_google_oauth_start(): void {
+function movisoft_dap_render_import_page(): void {
 	if ( ! current_user_can( 'manage_options' ) ) {
-		wp_die( esc_html__( 'No autorizado.', 'movisoft-drive-auto-publisher' ) );
+		wp_die( esc_html__( 'No tienes permisos suficientes.', 'movisoft-drive-auto-publisher' ) );
 	}
-
-	check_admin_referer( 'movisoft_dap_google_oauth_start' );
-
-	$options  = get_option( 'movisoft_dap_settings', array() );
-	$auth_uri = esc_url_raw( $options['google_auth_uri'] ?? 'https://accounts.google.com/o/oauth2/auth' );
-	$client_id = sanitize_text_field( $options['google_client_id'] ?? '' );
-
-	if ( empty( $client_id ) ) {
-		wp_safe_redirect( add_query_arg( array( 'page' => 'movisoft-auto-publisher-settings', 'oauth' => 'missing_json' ), admin_url( 'admin.php' ) ) );
-		exit;
-	}
-
-	$state = wp_generate_password( 24, false, false );
-	set_transient( 'movisoft_dap_oauth_state_' . get_current_user_id(), $state, 10 * MINUTE_IN_SECONDS );
-
-	$auth_url = add_query_arg(
-		array(
-			'client_id'              => $client_id,
-			'redirect_uri'           => movisoft_dap_google_redirect_uri(),
-			'response_type'          => 'code',
-			'scope'                  => 'https://www.googleapis.com/auth/drive.readonly',
-			'access_type'            => 'offline',
-			'prompt'                 => 'consent',
-			'include_granted_scopes' => 'true',
-			'state'                  => $state,
-		),
-		$auth_uri
-	);
-
-	wp_safe_redirect( $auth_url );
-	exit;
+	?>
+	<div class="wrap movisoft-dap-wrap">
+		<h1><?php echo esc_html__( 'Importar desde Drive', 'movisoft-drive-auto-publisher' ); ?></h1>
+		<p><?php echo esc_html__( 'Procesa archivos en lotes de 10 para evitar timeout.', 'movisoft-drive-auto-publisher' ); ?></p>
+		<button class="button button-primary" id="movisoft-start-import"><?php echo esc_html__( 'Importar', 'movisoft-drive-auto-publisher' ); ?></button>
+		<div id="movisoft-import-status" class="movisoft-status"></div>
+	</div>
+	<?php
 }
-add_action( 'admin_post_movisoft_dap_google_oauth_start', 'movisoft_dap_handle_google_oauth_start' );
 
 /**
- * Callback OAuth.
+ * Logs page.
  */
-function movisoft_dap_handle_google_oauth_callback(): void {
+function movisoft_dap_render_logs_page(): void {
 	if ( ! current_user_can( 'manage_options' ) ) {
-		return;
+		wp_die( esc_html__( 'No tienes permisos suficientes.', 'movisoft-drive-auto-publisher' ) );
 	}
 
-	$page = sanitize_text_field( wp_unslash( $_GET['page'] ?? '' ) );
-	$cb   = absint( $_GET['oauth_callback'] ?? 0 );
-	if ( 'movisoft-auto-publisher' !== $page || 1 !== $cb ) {
-		return;
-	}
-
-	if ( ! empty( $_GET['error'] ) ) {
-		movisoft_dap_log( 'OAuth cancelado por usuario: ' . sanitize_text_field( wp_unslash( $_GET['error'] ) ) );
-		wp_safe_redirect( add_query_arg( array( 'page' => 'movisoft-auto-publisher-settings', 'oauth' => 'error' ), admin_url( 'admin.php' ) ) );
-		exit;
-	}
-
-	$code  = sanitize_text_field( wp_unslash( $_GET['code'] ?? '' ) );
-	$state = sanitize_text_field( wp_unslash( $_GET['state'] ?? '' ) );
-	$saved = get_transient( 'movisoft_dap_oauth_state_' . get_current_user_id() );
-
-	if ( empty( $code ) || empty( $state ) || empty( $saved ) || ! hash_equals( $saved, $state ) ) {
-		movisoft_dap_log( 'OAuth callback inválido: state/code.' );
-		wp_safe_redirect( add_query_arg( array( 'page' => 'movisoft-auto-publisher-settings', 'oauth' => 'invalid_state' ), admin_url( 'admin.php' ) ) );
-		exit;
-	}
-
-	delete_transient( 'movisoft_dap_oauth_state_' . get_current_user_id() );
-	$result = movisoft_dap_exchange_google_auth_code( $code );
-
-	if ( empty( $result['success'] ) ) {
-		movisoft_dap_log( 'OAuth exchange error: ' . sanitize_text_field( $result['error'] ?? 'desconocido' ) );
-		wp_safe_redirect( add_query_arg( array( 'page' => 'movisoft-auto-publisher-settings', 'oauth' => 'token_error' ), admin_url( 'admin.php' ) ) );
-		exit;
-	}
-
-	wp_safe_redirect( add_query_arg( array( 'page' => 'movisoft-auto-publisher-settings', 'oauth' => 'connected' ), admin_url( 'admin.php' ) ) );
-	exit;
+	$log_content = movisoft_dap_read_log();
+	?>
+	<div class="wrap movisoft-dap-wrap">
+		<h1><?php echo esc_html__( 'Logs', 'movisoft-drive-auto-publisher' ); ?></h1>
+		<textarea class="large-text code" rows="24" readonly><?php echo esc_textarea( $log_content ); ?></textarea>
+	</div>
+	<?php
 }
-add_action( 'admin_init', 'movisoft_dap_handle_google_oauth_callback' );
 
 /**
  * Acción de test de conexión Google.
@@ -383,13 +294,13 @@ function movisoft_dap_ajax_process_batch(): void {
 		wp_send_json_error( array( 'message' => 'Sesión de importación expirada.' ) );
 	}
 
-	$options    = get_option( 'movisoft_dap_settings', array() );
-	$folder_tag = sanitize_text_field( $options['folder_brand'] ?? '' );
-	if ( empty( $folder_tag ) ) {
-		$folder_tag = sanitize_text_field( $options['google_folder_id'] ?? '' );
+	$options   = get_option( 'movisoft_dap_settings', array() );
+	$folder_id = sanitize_text_field( $options['folder_brand'] ?? '' );
+	if ( empty( $folder_id ) ) {
+		$folder_id = sanitize_text_field( $options['google_folder_id'] ?? '' );
 	}
 
-	$result = movisoft_dap_process_batch( $files, $offset, $limit, $folder_tag );
+	$result = movisoft_dap_process_batch( $files, $offset, $limit, $folder_id );
 
 	if ( ! empty( $result['complete'] ) ) {
 		delete_transient( 'movisoft_dap_drive_files_' . get_current_user_id() );
